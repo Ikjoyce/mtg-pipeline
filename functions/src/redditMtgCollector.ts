@@ -1,5 +1,9 @@
+
 // Reddit MTG Training Data Collection System (TypeScript version)
 // This is a scaffold for porting the Python logic to TypeScript/Node.js for use in Firebase Functions.
+
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '../../.env' });
 
 
 import * as functions from 'firebase-functions';
@@ -41,8 +45,8 @@ export const collectRedditMTGData = functions.https.onRequest(async (req: Reques
   // NOTE: In production, use environment variables or Firebase secrets for credentials
   const reddit = new Snoowrap({
     userAgent: 'MTG_Training_Data_Collector_v1.0',
-    clientId: process.env.REDDIT_CLIENT_ID || 'YOUR_CLIENT_ID',
-    clientSecret: process.env.REDDIT_CLIENT_SECRET || 'YOUR_CLIENT_SECRET',
+    clientId: process.env.REDDIT_CLIENT_ID || 'R6QA5a5zw_aBmrCdnKKZsg',
+    clientSecret: process.env.REDDIT_CLIENT_SECRET || 'Vn_QjIpCLFkO5W8dCp8wtUuU3_5eqw',
     refreshToken: process.env.REDDIT_REFRESH_TOKEN || 'YOUR_REFRESH_TOKEN',
   });
 
