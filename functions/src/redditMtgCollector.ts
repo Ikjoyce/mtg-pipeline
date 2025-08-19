@@ -52,9 +52,12 @@ export const collectRedditMTGData = functions.https.onRequest(async (req: Reques
 
   const interactions: MTGInteraction[] = [];
 
+  // Work around snoowrap typing issue by using a typed-any client for runtime calls
+  const redditAny: any = reddit as any;
+
   for (const subredditName of targetSubreddits) {
-    const subreddit = await reddit.getSubreddit(subredditName);
-    const posts = await subreddit.getHot({ limit: 10 }); // Limit for demo
+    const subreddit: any = await redditAny.getSubreddit(subredditName);
+    const posts: any = await subreddit.getHot({ limit: 10 }); // Limit for demo
     for (const submission of posts) {
       if (!isRulesQuestion(submission.title + ' ' + (submission.selftext || ''))) continue;
       const bestAnswer = await getBestAnswer(submission);

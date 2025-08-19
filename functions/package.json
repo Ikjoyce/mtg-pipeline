@@ -1,14 +1,14 @@
 {
   "name": "functions",
-  "main": "src/index.ts",
-  "type": "module",
+  "main": "lib/index.js",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc",
+  "build": "tsc",
     "lint": "eslint .",
-    "deploy": "firebase deploy --only functions"
+  "deploy": "firebase deploy --only functions",
+  "predeploy": "npm run build"
   },
   "dependencies": {
     "dotenv": "^17.2.1",
