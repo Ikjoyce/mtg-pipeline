@@ -167,10 +167,10 @@ async function runCollector(redditCfg, opts = {}) {
         });
         for (const submission of posts) {
             metrics.posts_scanned++;
-            if (!isRulesPost(submission, metrics))
+            if (!isRulesPost(submission, metrics, { strictMagicFlair: !!opts.strictMagicFlair }))
                 continue;
             metrics.rules_like++;
-            const bestAnswer = await getBestAnswer(submission);
+            const bestAnswer = await getBestAnswer(submission, metrics);
             if (!bestAnswer)
                 continue;
             if (bestAnswer.score < minCommentScore)
@@ -274,7 +274,8 @@ exports.collectRedditMTGData = (0, https_1.onRequest)({ secrets: [
             sources: parsedSources,
             minCommentScore: req.query.minScore ? Number(req.query.minScore) : undefined,
             minAnswerLength: req.query.minLen ? Number(req.query.minLen) : undefined,
-            dryRun: String(req.query.dryRun || '').toLowerCase() === 'true'
+            dryRun: String(req.query.dryRun || '').toLowerCase() === 'true',
+            strictMagicFlair: String(req.query.strictMagicFlair || '').toLowerCase() === 'true',
         };
         const { interactions, metrics } = await runCollector(redditCfg, opt);
         res.status(200).json({ count: interactions.length, metrics, interactions });
@@ -311,14 +312,19 @@ function hasQuestionSignal(text) {
     return t.includes('?') && interrogatives.some(i => t.includes(i));
 }
 // Uses submission metadata (like flair) to decide if a post is likely a rules question.
-function isRulesPost(submission, metrics) {
+function isRulesPost(submission, metrics, opts) {
     const flair = submission?.link_flair_text?.toString().toLowerCase();
     const title = submission?.title || '';
     const body = submission?.selftext || '';
     const text = `${title}\n${body}`;
+    const subreddit = (submission?.subreddit?.display_name || submission?.subreddit?.display_name_prefixed || '').toString().toLowerCase();
     if (flair && (flair.includes('rules') || flair.includes('question'))) {
         metrics && (metrics.flair_rules = (metrics.flair_rules || 0) + 1);
         return true;
+    }
+    // If strict flair is requested for magicTCG, require rules-like flair
+    if (opts?.strictMagicFlair && subreddit === 'magictcg') {
+        return false;
     }
     if (isLikelyDeckPost(text)) {
         metrics && (metrics.excluded_decklike = (metrics.excluded_decklike || 0) + 1);
@@ -349,7 +355,7 @@ function isLowQualityBotAnswer(text) {
         return true;
     return false;
 }
-async function getBestAnswer(submission) {
+async function getBestAnswer(submission, metrics) {
     try {
         // Ensure we have a decent set of top-level comments to evaluate
         let comments = [];
@@ -376,6 +382,7 @@ async function getBestAnswer(submission) {
             if (!comment || !comment.body)
                 continue;
             if (isLowQualityBotAnswer(comment.body)) {
+                metrics && (metrics.comments_skipped_low_quality = (metrics.comments_skipped_low_quality || 0) + 1);
                 continue;
             }
             const judgeBonus = knownJudges.has(comment.author?.name) ? 50 : 0;
@@ -386,10 +393,7 @@ async function getBestAnswer(submission) {
             const baseScore = typeof comment.score === 'number' ? comment.score : 0;
             const totalScore = baseScore + judgeBonus + judgeFlairBonus + ruleBonus + lengthBonus;
             // track metrics if available
-            try {
-                submission.__metrics && (submission.__metrics.comments_scored = (submission.__metrics.comments_scored || 0) + 1);
-            }
-            catch { }
+            metrics && (metrics.comments_scored = (metrics.comments_scored || 0) + 1);
             if (totalScore > bestScore) {
                 bestScore = totalScore;
                 bestComment = {

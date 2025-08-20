@@ -37,6 +37,7 @@ type CollectorOptions = {
   minCommentScore?: number;
   minAnswerLength?: number;
   dryRun?: boolean;
+  strictMagicFlair?: boolean;
 };
 
 // Known MTG judges on Reddit (add as needed)
@@ -166,9 +167,9 @@ async function runCollector(
     });
     for (const submission of posts) {
       metrics.posts_scanned++;
-      if (!isRulesPost(submission, metrics)) continue;
+      if (!isRulesPost(submission, metrics, { strictMagicFlair: !!opts.strictMagicFlair })) continue;
       metrics.rules_like++;
-      const bestAnswer = await getBestAnswer(submission);
+  const bestAnswer = await getBestAnswer(submission, metrics);
       if (!bestAnswer) continue;
       if (bestAnswer.score < minCommentScore) continue;
       if (!bestAnswer.body || bestAnswer.body.length < minAnswerLength) continue;
@@ -270,7 +271,8 @@ export const collectRedditMTGData = onRequest({ secrets: [
       sources: parsedSources,
       minCommentScore: req.query.minScore ? Number(req.query.minScore) : undefined,
       minAnswerLength: req.query.minLen ? Number(req.query.minLen) : undefined,
-      dryRun: String(req.query.dryRun || '').toLowerCase() === 'true'
+  dryRun: String(req.query.dryRun || '').toLowerCase() === 'true',
+  strictMagicFlair: String(req.query.strictMagicFlair || '').toLowerCase() === 'true',
     };
     const { interactions, metrics } = await runCollector(redditCfg, opt);
     res.status(200).json({ count: interactions.length, metrics, interactions });
@@ -311,15 +313,21 @@ function hasQuestionSignal(text: string): boolean {
 }
 
 // Uses submission metadata (like flair) to decide if a post is likely a rules question.
-function isRulesPost(submission: any, metrics?: Record<string, number>): boolean {
+function isRulesPost(submission: any, metrics?: Record<string, number>, opts?: { strictMagicFlair?: boolean }): boolean {
   const flair: string | undefined = submission?.link_flair_text?.toString().toLowerCase();
   const title = submission?.title || '';
   const body = submission?.selftext || '';
   const text = `${title}\n${body}`;
+  const subreddit = (submission?.subreddit?.display_name || submission?.subreddit?.display_name_prefixed || '').toString().toLowerCase();
 
   if (flair && (flair.includes('rules') || flair.includes('question'))) {
     metrics && (metrics.flair_rules = (metrics.flair_rules || 0) + 1);
     return true;
+  }
+
+  // If strict flair is requested for magicTCG, require rules-like flair
+  if (opts?.strictMagicFlair && subreddit === 'magictcg') {
+    return false;
   }
 
   if (isLikelyDeckPost(text)) {
@@ -348,7 +356,7 @@ function isLowQualityBotAnswer(text: string): boolean {
   return false;
 }
 
-async function getBestAnswer(submission: any): Promise<any | null> {
+async function getBestAnswer(submission: any, metrics?: Record<string, number>): Promise<any | null> {
   try {
     // Ensure we have a decent set of top-level comments to evaluate
     let comments: any[] = [];
@@ -372,7 +380,7 @@ async function getBestAnswer(submission: any): Promise<any | null> {
     let bestScore = -Infinity;
     for (const comment of comments) {
       if (!comment || !comment.body) continue;
-      if (isLowQualityBotAnswer(comment.body)) { continue; }
+      if (isLowQualityBotAnswer(comment.body)) { metrics && (metrics.comments_skipped_low_quality = (metrics.comments_skipped_low_quality || 0) + 1); continue; }
       const judgeBonus = knownJudges.has(comment.author?.name) ? 50 : 0;
       const flairText = comment.author_flair_text?.toString().toLowerCase?.() || '';
       const judgeFlairBonus = /judge|level\s*\d|l\d/.test(flairText) ? 35 : 0;
@@ -381,7 +389,7 @@ async function getBestAnswer(submission: any): Promise<any | null> {
       const baseScore = typeof comment.score === 'number' ? comment.score : 0;
       const totalScore = baseScore + judgeBonus + judgeFlairBonus + ruleBonus + lengthBonus;
       // track metrics if available
-      try { (submission as any).__metrics && ((submission as any).__metrics.comments_scored = ((submission as any).__metrics.comments_scored || 0) + 1); } catch {}
+      metrics && (metrics.comments_scored = (metrics.comments_scored || 0) + 1);
       if (totalScore > bestScore) {
         bestScore = totalScore;
         bestComment = {
