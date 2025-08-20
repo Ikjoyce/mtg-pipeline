@@ -10,6 +10,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { Request, Response } from 'express';
 import Snoowrap from 'snoowrap';
+import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 // Data structure for an MTG interaction
 export interface MTGInteraction {
@@ -41,18 +42,54 @@ const targetSubreddits = [
 ];
 
 // Placeholder for main function
-export const collectRedditMTGData = functions.https.onRequest(async (req: Request, res: Response) => {
-  // NOTE: In production, use environment variables or Firebase secrets for credentials
+admin.initializeApp();
+
+function getRedditConfig() {
+  const cfg = (functions.config && functions.config().reddit) ? functions.config().reddit : {} as any;
+  return {
+    userAgent: cfg.user_agent || process.env.REDDIT_USER_AGENT || 'MTG_Training_Data_Collector_v1.0',
+    clientId: cfg.client_id || process.env.REDDIT_CLIENT_ID,
+    clientSecret: cfg.client_secret || process.env.REDDIT_CLIENT_SECRET,
+    refreshToken: cfg.refresh_token || process.env.REDDIT_REFRESH_TOKEN,
+  };
+}
+
+// Secret Manager helper - tries to read secrets from Secret Manager and return values if available.
+const smClient = new SecretManagerServiceClient();
+
+async function readSecretValue(secretId: string): Promise<string|undefined> {
+  try {
+    const projectId = process.env.GCLOUD_PROJECT || process.env.GCLOUD_PROJECT_ID || 'stacksagemtg';
+    const name = `projects/${projectId}/secrets/${secretId}/versions/latest`;
+    const [accessResponse] = await smClient.accessSecretVersion({ name });
+    const payload = accessResponse.payload?.data?.toString();
+    return payload;
+  } catch (err) {
+    // secret not found or permissions issue - return undefined to allow fallback
+    return undefined;
+  }
+}
+
+async function getRedditConfigFromSecrets(): Promise<Record<string,string|undefined>> {
+  const keys = ['REDDIT_CLIENT_ID','REDDIT_CLIENT_SECRET','REDDIT_REFRESH_TOKEN','REDDIT_USER_AGENT'];
+  const out: Record<string,string|undefined> = {};
+  for (const k of keys) {
+    const v = await readSecretValue(k);
+    out[k] = v;
+  }
+  return out;
+}
+
+// Core collector logic separated so it can be reused by HTTP handler or other triggers
+async function runCollector(redditCfg: { userAgent: string, clientId: string, clientSecret: string, refreshToken: string }): Promise<MTGInteraction[]> {
   const reddit = new Snoowrap({
-    userAgent: 'MTG_Training_Data_Collector_v1.0',
-    clientId: process.env.REDDIT_CLIENT_ID || 'R6QA5a5zw_aBmrCdnKKZsg',
-    clientSecret: process.env.REDDIT_CLIENT_SECRET || 'Vn_QjIpCLFkO5W8dCp8wtUuU3_5eqw',
-    refreshToken: process.env.REDDIT_REFRESH_TOKEN || 'YOUR_REFRESH_TOKEN',
+    userAgent: redditCfg.userAgent,
+    clientId: redditCfg.clientId,
+    clientSecret: redditCfg.clientSecret,
+    refreshToken: redditCfg.refreshToken,
   });
 
   const interactions: MTGInteraction[] = [];
-
-  // Work around snoowrap typing issue by using a typed-any client for runtime calls
   const redditAny: any = reddit as any;
 
   for (const subredditName of targetSubreddits) {
@@ -77,8 +114,36 @@ export const collectRedditMTGData = functions.https.onRequest(async (req: Reques
       interactions.push(interaction);
     }
   }
-  res.status(200).json({ count: interactions.length, interactions });
+  return interactions;
+}
+
+export const collectRedditMTGData = functions.https.onRequest(async (req: Request, res: Response) => {
+  // Prefer Secret Manager values, then functions.config(), then .env
+  const secretVals = await getRedditConfigFromSecrets();
+  const cfgFallback = getRedditConfig();
+  const redditCfg = {
+    userAgent: secretVals.REDDIT_USER_AGENT || cfgFallback.userAgent,
+    clientId: secretVals.REDDIT_CLIENT_ID || cfgFallback.clientId,
+    clientSecret: secretVals.REDDIT_CLIENT_SECRET || cfgFallback.clientSecret,
+    refreshToken: secretVals.REDDIT_REFRESH_TOKEN || cfgFallback.refreshToken,
+  };
+
+  if (!redditCfg.clientId || !redditCfg.clientSecret || !redditCfg.refreshToken) {
+    res.status(500).send('Reddit credentials not configured');
+    return;
+  }
+
+  try {
+    const interactions = await runCollector(redditCfg);
+    res.status(200).json({ count: interactions.length, interactions });
+  } catch (err: any) {
+    res.status(500).send(`Collector error: ${err?.message || err}`);
+  }
 });
+
+// Scheduled function that runs every night at 02:00 UTC (cron)
+// Note: scheduled (pubsub) functions require firebase-functions v2 PubSub API typings. We can add a scheduled trigger
+// later after aligning SDK versions. For now we provide an HTTP manual trigger (`collectRedditMTGData`).
 
 function isRulesQuestion(text: string): boolean {
   const rulesIndicators = [

@@ -7,7 +7,7 @@
       "firebase-debug.log",
       "firebase-debug.*.log"
     ],
-    "runtime": "nodejs18"
+  "runtime": "nodejs18"
   },
   "firestore": {
     "rules": "firestore-pipeline.rules"
