@@ -44,6 +44,8 @@ exports.extractRuleReferences = extractRuleReferences;
 const dotenv = __importStar(require("dotenv"));
 dotenv.config({ path: '../../.env' });
 const functions = __importStar(require("firebase-functions"));
+const https_1 = require("firebase-functions/v2/https");
+const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
 const snoowrap_1 = __importDefault(require("snoowrap"));
 const crypto_1 = require("crypto");
@@ -64,13 +66,29 @@ const targetSubreddits = [
 // Placeholder for main function
 admin.initializeApp();
 function getRedditConfig() {
-    const cfg = (functions.config && functions.config().reddit) ? functions.config().reddit : {};
-    return {
-        userAgent: cfg.user_agent || process.env.REDDIT_USER_AGENT || 'MTG_Training_Data_Collector_v1.0',
-        clientId: cfg.client_id || process.env.REDDIT_CLIENT_ID,
-        clientSecret: cfg.client_secret || process.env.REDDIT_CLIENT_SECRET,
-        refreshToken: cfg.refresh_token || process.env.REDDIT_REFRESH_TOKEN,
+    // Prefer environment variables (including Functions v2 secrets) and avoid hard dependency on functions.config()
+    const out = {
+        userAgent: process.env.REDDIT_USER_AGENT || 'MTG_Training_Data_Collector_v1.0',
+        clientId: process.env.REDDIT_CLIENT_ID,
+        clientSecret: process.env.REDDIT_CLIENT_SECRET,
+        refreshToken: process.env.REDDIT_REFRESH_TOKEN,
     };
+    // Best-effort: attempt to read functions.config() if available (v1), but ignore errors in v2
+    try {
+        const anyFuncs = functions;
+        if (anyFuncs && typeof anyFuncs.config === 'function') {
+            const cfgRoot = anyFuncs.config();
+            const cfg = (cfgRoot && cfgRoot.reddit) ? cfgRoot.reddit : {};
+            out.userAgent = out.userAgent || cfg.user_agent;
+            out.clientId = out.clientId || cfg.client_id;
+            out.clientSecret = out.clientSecret || cfg.client_secret;
+            out.refreshToken = out.refreshToken || cfg.refresh_token;
+        }
+    }
+    catch (_) {
+        // functions.config() is not supported in v2; ignore
+    }
+    return out;
 }
 // Secret Manager helper - tries to read secrets from Secret Manager and return values if available.
 const smClient = new secret_manager_1.SecretManagerServiceClient();
@@ -173,15 +191,25 @@ async function runCollector(redditCfg) {
     }
     return interactions;
 }
-exports.collectRedditMTGData = functions.https.onRequest(async (req, res) => {
+// Declare secrets so Functions v2 mounts them as environment variables at runtime
+const S_REDDIT_CLIENT_ID = (0, params_1.defineSecret)('REDDIT_CLIENT_ID');
+const S_REDDIT_CLIENT_SECRET = (0, params_1.defineSecret)('REDDIT_CLIENT_SECRET');
+const S_REDDIT_REFRESH_TOKEN = (0, params_1.defineSecret)('REDDIT_REFRESH_TOKEN');
+const S_REDDIT_USER_AGENT = (0, params_1.defineSecret)('REDDIT_USER_AGENT');
+exports.collectRedditMTGData = (0, https_1.onRequest)({ secrets: [
+        S_REDDIT_CLIENT_ID,
+        S_REDDIT_CLIENT_SECRET,
+        S_REDDIT_REFRESH_TOKEN,
+        S_REDDIT_USER_AGENT,
+    ] }, async (req, res) => {
     // Prefer Secret Manager values, then functions.config(), then .env
     const secretVals = await getRedditConfigFromSecrets();
     const cfgFallback = getRedditConfig();
     const redditCfg = {
-        userAgent: secretVals.REDDIT_USER_AGENT || cfgFallback.userAgent,
-        clientId: secretVals.REDDIT_CLIENT_ID || cfgFallback.clientId,
-        clientSecret: secretVals.REDDIT_CLIENT_SECRET || cfgFallback.clientSecret,
-        refreshToken: secretVals.REDDIT_REFRESH_TOKEN || cfgFallback.refreshToken,
+        userAgent: S_REDDIT_USER_AGENT.value() || secretVals.REDDIT_USER_AGENT || cfgFallback.userAgent,
+        clientId: S_REDDIT_CLIENT_ID.value() || secretVals.REDDIT_CLIENT_ID || cfgFallback.clientId,
+        clientSecret: S_REDDIT_CLIENT_SECRET.value() || secretVals.REDDIT_CLIENT_SECRET || cfgFallback.clientSecret,
+        refreshToken: S_REDDIT_REFRESH_TOKEN.value() || secretVals.REDDIT_REFRESH_TOKEN || cfgFallback.refreshToken,
     };
     if (!redditCfg.clientId || !redditCfg.clientSecret || !redditCfg.refreshToken) {
         res.status(500).send('Reddit credentials not configured');

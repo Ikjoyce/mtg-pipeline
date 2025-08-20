@@ -7,6 +7,8 @@ dotenv.config({ path: '../../.env' });
 
 
 import * as functions from 'firebase-functions';
+import { onRequest } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import * as admin from 'firebase-admin';
 import { Request, Response } from 'express';
 import Snoowrap from 'snoowrap';
@@ -47,13 +49,30 @@ const targetSubreddits = [
 admin.initializeApp();
 
 function getRedditConfig() {
-  const cfg = (functions.config && functions.config().reddit) ? functions.config().reddit : {} as any;
-  return {
-    userAgent: cfg.user_agent || process.env.REDDIT_USER_AGENT || 'MTG_Training_Data_Collector_v1.0',
-    clientId: cfg.client_id || process.env.REDDIT_CLIENT_ID,
-    clientSecret: cfg.client_secret || process.env.REDDIT_CLIENT_SECRET,
-    refreshToken: cfg.refresh_token || process.env.REDDIT_REFRESH_TOKEN,
+  // Prefer environment variables (including Functions v2 secrets) and avoid hard dependency on functions.config()
+  const out: any = {
+    userAgent: process.env.REDDIT_USER_AGENT || 'MTG_Training_Data_Collector_v1.0',
+    clientId: process.env.REDDIT_CLIENT_ID,
+    clientSecret: process.env.REDDIT_CLIENT_SECRET,
+    refreshToken: process.env.REDDIT_REFRESH_TOKEN,
   };
+
+  // Best-effort: attempt to read functions.config() if available (v1), but ignore errors in v2
+  try {
+    const anyFuncs: any = functions as any;
+    if (anyFuncs && typeof anyFuncs.config === 'function') {
+      const cfgRoot = anyFuncs.config();
+      const cfg = (cfgRoot && cfgRoot.reddit) ? cfgRoot.reddit : {};
+      out.userAgent = out.userAgent || cfg.user_agent;
+      out.clientId = out.clientId || cfg.client_id;
+      out.clientSecret = out.clientSecret || cfg.client_secret;
+      out.refreshToken = out.refreshToken || cfg.refresh_token;
+    }
+  } catch (_) {
+    // functions.config() is not supported in v2; ignore
+  }
+
+  return out;
 }
 
 // Secret Manager helper - tries to read secrets from Secret Manager and return values if available.
@@ -161,15 +180,26 @@ async function runCollector(redditCfg: { userAgent: string, clientId: string, cl
   return interactions;
 }
 
-export const collectRedditMTGData = functions.https.onRequest(async (req: Request, res: Response) => {
+// Declare secrets so Functions v2 mounts them as environment variables at runtime
+const S_REDDIT_CLIENT_ID = defineSecret('REDDIT_CLIENT_ID');
+const S_REDDIT_CLIENT_SECRET = defineSecret('REDDIT_CLIENT_SECRET');
+const S_REDDIT_REFRESH_TOKEN = defineSecret('REDDIT_REFRESH_TOKEN');
+const S_REDDIT_USER_AGENT = defineSecret('REDDIT_USER_AGENT');
+
+export const collectRedditMTGData = onRequest({ secrets: [
+  S_REDDIT_CLIENT_ID,
+  S_REDDIT_CLIENT_SECRET,
+  S_REDDIT_REFRESH_TOKEN,
+  S_REDDIT_USER_AGENT,
+] }, async (req: Request, res: Response) => {
   // Prefer Secret Manager values, then functions.config(), then .env
   const secretVals = await getRedditConfigFromSecrets();
   const cfgFallback = getRedditConfig();
   const redditCfg = {
-    userAgent: secretVals.REDDIT_USER_AGENT || cfgFallback.userAgent,
-    clientId: secretVals.REDDIT_CLIENT_ID || cfgFallback.clientId,
-    clientSecret: secretVals.REDDIT_CLIENT_SECRET || cfgFallback.clientSecret,
-    refreshToken: secretVals.REDDIT_REFRESH_TOKEN || cfgFallback.refreshToken,
+    userAgent: S_REDDIT_USER_AGENT.value() || secretVals.REDDIT_USER_AGENT || cfgFallback.userAgent,
+    clientId: S_REDDIT_CLIENT_ID.value() || secretVals.REDDIT_CLIENT_ID || cfgFallback.clientId,
+    clientSecret: S_REDDIT_CLIENT_SECRET.value() || secretVals.REDDIT_CLIENT_SECRET || cfgFallback.clientSecret,
+    refreshToken: S_REDDIT_REFRESH_TOKEN.value() || secretVals.REDDIT_REFRESH_TOKEN || cfgFallback.refreshToken,
   };
 
   if (!redditCfg.clientId || !redditCfg.clientSecret || !redditCfg.refreshToken) {
