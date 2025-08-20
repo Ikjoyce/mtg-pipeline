@@ -5,6 +5,22 @@ service cloud.firestore {
     match /games/{gameId} {
       allow read: if true;
     }
+    // Pipeline-specific collections
+    match /reddit_raw/{document} {
+      // Deny all client SDK read/write; only server (admin SDK) should write.
+      allow read, write: if false;
+    }
+    
+    match /training_candidates/{document} {
+      // Deny client SDK access; Cloud Functions (admin) may write
+      allow read, write: if false;
+    }
+
+    // Specific production collection used by pipeline for later model candidates
+    match /reddit_interactions/{docId} {
+      // Clients cannot read or write this collection directly. Admin SDK used by functions will bypass these rules.
+      allow read, write: if false;
+    }
     // Add more rules as needed
   }
 }

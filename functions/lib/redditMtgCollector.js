@@ -39,6 +39,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.collectRedditMTGData = void 0;
+exports.isRulesQuestion = isRulesQuestion;
+exports.extractRuleReferences = extractRuleReferences;
 const dotenv = __importStar(require("dotenv"));
 dotenv.config({ path: '../../.env' });
 const functions = __importStar(require("firebase-functions"));

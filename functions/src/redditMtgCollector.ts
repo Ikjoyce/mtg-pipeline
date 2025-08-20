@@ -189,7 +189,7 @@ export const collectRedditMTGData = functions.https.onRequest(async (req: Reques
 // Note: scheduled (pubsub) functions require firebase-functions v2 PubSub API typings. We can add a scheduled trigger
 // later after aligning SDK versions. For now we provide an HTTP manual trigger (`collectRedditMTGData`).
 
-function isRulesQuestion(text: string): boolean {
+export function isRulesQuestion(text: string): boolean {
   const rulesIndicators = [
     'interaction', 'stack', 'resolve', 'priority', 'trigger',
     'can i', 'does this work', 'rules question', 'timing',
@@ -226,7 +226,7 @@ function hasRuleReferences(text: string): boolean {
   return /\b\d{3}\.\d+[a-z]?\b/.test(text);
 }
 
-function extractRuleReferences(text: string): string[] {
+export function extractRuleReferences(text: string): string[] {
   const matches = text.match(/\b(\d{3}\.\d+[a-z]?)\b/g);
   return matches ? Array.from(new Set(matches)) : [];
 }

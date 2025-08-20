@@ -6,7 +6,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "lint": "eslint .",
+    "lint": "eslint lib --ext .js",
+    "test": "node ./lib/test-runner.js",
     "deploy": "firebase deploy --only functions",
     "predeploy": "npm run build"
   },
