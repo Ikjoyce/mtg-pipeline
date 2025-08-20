@@ -44,6 +44,7 @@ dotenv.config({ path: '../../.env' });
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const snoowrap_1 = __importDefault(require("snoowrap"));
+const crypto_1 = require("crypto");
 const secret_manager_1 = require("@google-cloud/secret-manager");
 // Known MTG judges on Reddit (add as needed)
 const knownJudges = new Set([
@@ -123,9 +124,50 @@ async function runCollector(redditCfg) {
                 interactionType: classifyInteraction(submission.title + ' ' + (submission.selftext || '')),
                 sourceUrl: `https://reddit.com${submission.permalink}`,
                 timestamp: new Date(submission.created_utc * 1000).toISOString(),
+                subreddit: subredditName,
             };
             interactions.push(interaction);
         }
+    }
+    // Persist interactions to Firestore in batches
+    try {
+        const db = admin.firestore();
+        const BATCH_SIZE = 400; // keep under 500
+        for (let i = 0; i < interactions.length; i += BATCH_SIZE) {
+            const batch = db.batch();
+            const chunk = interactions.slice(i, i + BATCH_SIZE);
+            for (const interaction of chunk) {
+                const ts = new Date(interaction.timestamp);
+                // Deterministic ID: prefer sourceUrl, fallback to question hash
+                const idSource = interaction.sourceUrl || interaction.question;
+                const id = (0, crypto_1.createHash)('sha256').update(idSource).digest('hex');
+                const docRef = db.collection('reddit_interactions').doc(id);
+                // Only create if not exists to deduplicate
+                const snap = await docRef.get();
+                if (snap.exists)
+                    continue;
+                // Add collected_at and source tags
+                batch.set(docRef, {
+                    question: interaction.question,
+                    answer: interaction.topAnswer,
+                    confidence: interaction.confidenceScore,
+                    upvotes: interaction.upvotes,
+                    answered_by_judge: interaction.answeredByJudge,
+                    rule_references: interaction.ruleReferences,
+                    cards_mentioned: interaction.cardsMentioned,
+                    interaction_type: interaction.interactionType,
+                    source_url: interaction.sourceUrl,
+                    subreddit: interaction.subreddit || null,
+                    source_tags: ['reddit', 'collected_by_pipeline'],
+                    collected_at: admin.firestore.Timestamp.fromDate(new Date()),
+                    timestamp: admin.firestore.Timestamp.fromDate(ts)
+                });
+            }
+            await batch.commit();
+        }
+    }
+    catch (err) {
+        console.error('Error writing interactions to Firestore:', err);
     }
     return interactions;
 }
