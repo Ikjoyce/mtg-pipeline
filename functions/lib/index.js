@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.collectRedditMTGData = exports.helloWorld = void 0;
+exports.curatedInteractions = exports.collectRedditMTGData = exports.helloWorld = void 0;
 // Entry point for Firebase Cloud Functions
 const functions = __importStar(require("firebase-functions"));
 // Example HTTP function
@@ -43,3 +43,5 @@ exports.helloWorld = functions.https.onRequest((request, response) => {
 // Re-export collector so firebase sees it at the functions entrypoint
 var redditMtgCollector_1 = require("./redditMtgCollector");
 Object.defineProperty(exports, "collectRedditMTGData", { enumerable: true, get: function () { return redditMtgCollector_1.collectRedditMTGData; } });
+var curatedInteractions_1 = require("./curatedInteractions");
+Object.defineProperty(exports, "curatedInteractions", { enumerable: true, get: function () { return curatedInteractions_1.curatedInteractions; } });

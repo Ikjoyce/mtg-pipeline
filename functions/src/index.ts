@@ -8,3 +8,4 @@ export const helloWorld = functions.https.onRequest((request, response) => {
 
 // Re-export collector so firebase sees it at the functions entrypoint
 export { collectRedditMTGData } from './redditMtgCollector';
+export { curatedInteractions } from './curatedInteractions';
