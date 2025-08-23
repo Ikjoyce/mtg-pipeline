@@ -1,47 +1,10 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.curatedInteractions = exports.collectRedditMTGData = exports.helloWorld = void 0;
-// Entry point for Firebase Cloud Functions
-const functions = __importStar(require("firebase-functions"));
-// Example HTTP function
-exports.helloWorld = functions.https.onRequest((request, response) => {
-    response.send('Hello from MTG Training Pipeline!');
-});
-// Re-export collector so firebase sees it at the functions entrypoint
+exports.setPipelineReaderClaim = exports.curatedInteractions = exports.collectRedditMTGData = void 0;
+// Entry point for Firebase Cloud Functions - export only production functions
 var redditMtgCollector_1 = require("./redditMtgCollector");
 Object.defineProperty(exports, "collectRedditMTGData", { enumerable: true, get: function () { return redditMtgCollector_1.collectRedditMTGData; } });
 var curatedInteractions_1 = require("./curatedInteractions");
 Object.defineProperty(exports, "curatedInteractions", { enumerable: true, get: function () { return curatedInteractions_1.curatedInteractions; } });
+var adminClaims_1 = require("./adminClaims");
+Object.defineProperty(exports, "setPipelineReaderClaim", { enumerable: true, get: function () { return adminClaims_1.setPipelineReaderClaim; } });
